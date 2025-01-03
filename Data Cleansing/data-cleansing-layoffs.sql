@@ -1,9 +1,6 @@
 SELECT * FROM layoffs;
 
--- Layoffs Staging
--- Kita mau ubah staging dari data
--- Kalo ada something mistake, data sebelumnya ga ilang
-
+-- LAYOFFS STAGING --
 CREATE TABLE layoffs_staging
 LIKE layoffs;
 
@@ -13,16 +10,14 @@ INSERT layoffs_staging
 SELECT * 
 FROM layoffs;
 
--- DATA CLEANSING-- 
--- 1. Cek semua nomor baris, kalo ada yang lebih dari 1 maka itu duplikat
--- Gunakan row number dan partition
+-- DATA CLEANSING--
+-- 1. CHECK DUPLICATE --
 SELECT *,
 ROW_NUMBER() OVER(PARTITION BY company, location, 
 industry, total_laid_off, percentage_laid_off, 
 `date`, stage, country, funds_raised_millions) AS row_num
 FROM layoffs_staging;
 
--- 2. Membuat table sementara untuk menyimpan data yang ada row num nya
 WITH duplicate_cte AS(
 SELECT *,
 ROW_NUMBER() OVER(PARTITION BY company, location, 
@@ -33,7 +28,6 @@ SELECT * FROM
 duplicate_cte
 WHERE row_num > 1;
 
--- 3. Karna kita mau hapus row_num > 1, maka kita harus bikin table baru yang ada row_num nya
 CREATE TABLE `layoffs_staging2` (
   `company` text,
   `location` text,
@@ -47,7 +41,6 @@ CREATE TABLE `layoffs_staging2` (
   `row_num` INT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- 4. Masukin data ke table baru
 INSERT INTO layoffs_staging2
 SELECT *,
 ROW_NUMBER() OVER(PARTITION BY company, location, 
@@ -55,21 +48,18 @@ industry, total_laid_off, percentage_laid_off,
 date, stage, country, funds_raised_millions) AS row_num
 FROM layoffs_staging;
 
--- 5. Hapus data duplikat
+-- 2. DELETE DUPLICATE --
 DELETE FROM layoffs_staging2 WHERE row_num > 1;
 
-SELECT * FROM layoffs_staging2 WHERE row_num >1;
-
 -- STANDARDIZING DATA --
--- Mencari issue di dalam data dan perbaiki
--- Tips: Cari setiap kolom siapa tau ada issue
+-- Find the issues
 
--- 1. Remove Whitespace
+-- 1. REMOVE WHITESPACES --
 SET SQL_SAFE_UPDATES = 0;
 UPDATE layoffs_staging2 
 SET company = TRIM(company);
 
--- 2. Rename the Similar Data
+-- 2. RENAME DATA --
 UPDATE layoffs_staging2
 SET industry = 'Crypto'
 WHERE industry LIKE 'Crypto%';
@@ -82,7 +72,7 @@ SELECT distinct(location)
 FROM layoffs_staging2
 ORDER BY 1;
 
--- 3. Change DATE data type
+-- 3. CHANGE DATA TYPES --
 UPDATE layoffs_staging2
 SET `date` = str_to_date(`date`,'%m/%d/%Y');
 
@@ -90,17 +80,17 @@ ALTER TABLE layoffs_staging2
 MODIFY COLUMN `date` DATE;
 
 -- REMOVE BLANK OR NULL DATA --
--- Check null or blank
+-- 1. CHECK BLANK OR NULL --
 SELECT * 
 FROM layoffs_staging2
 WHERE industry IS NULL OR industry = '';
 
--- Update blank into null
+-- 2. UPDATE BLANK INTO NULL --
 UPDATE layoffs_staging2
 SET industry = NULL
 WHERE industry = '';
 
--- Change null into populating data (data lain yang mirip dan tidak null)
+-- 3. FILL NULL USING POPULATION DATA --
 SELECT t1.industry, t2.industry
 FROM layoffs_staging2 t1
 JOIN layoffs_staging2 t2
@@ -119,7 +109,7 @@ SELECT *
 FROM layoffs_staging2
 WHERE industry IS NULL OR industry = '';
 
--- Delete null data if the data is unconvincing
+-- 3. DELETE NULL DATA --
 DELETE
 FROM layoffs_staging2
 WHERE total_laid_off IS NULL 
@@ -130,7 +120,7 @@ FROM layoffs_staging2
 WHERE total_laid_off IS NULL 
 AND percentage_laid_off IS NULL;
 
--- REMOVE UNNECESSARY COLUMNS --
+-- 4. REMOVE UNNECESSARY COLUMNS --
 ALTER TABLE layoffs_staging2
 DROP row_num;
 
